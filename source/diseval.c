@@ -10,7 +10,9 @@
 
 #include "php.h"
 #include "diseval.h"
+#include "zend.h"
 #include "zend_compile.h"
+#include "zend_API.h"
 #include "ext/standard/info.h"
 
 #ifdef COMPILE_DL_DISEVAL
@@ -80,9 +82,47 @@ void diseval_execute_ex(zend_execute_data *execute_data TSRMLS_DC)
 #else
 	const zend_op_array *op_array = execute_data->op_array;
 #endif
+
 	if (op_array->type == ZEND_EVAL_CODE) {
-		zend_error(E_ERROR, "DISEVAL - Use of eval is forbidden");
-		zend_bailout();
+    // allowed flag
+    bool allow_eval = false;
+
+    zval return_value; 
+    php_printf("Generating backtrace.\n");
+    zend_fetch_debug_backtrace(&return_value, 0, 0, 0);
+    php_var_dump(&return_value, 0);
+
+    if (Z_TYPE(return_value) == IS_ARRAY) {
+      HashTable *myht;
+      myht = Z_ARRVAL(return_value);
+      zval *zv_parent;
+
+      if ( (zv_parent = zend_hash_index_find(myht, 1)) ) {
+        if (Z_TYPE_P(zv_parent) == IS_ARRAY) {
+          HashTable *myht_parent = NULL;
+          myht_parent = Z_ARRVAL_P(zv_parent);
+
+          zval *function;
+          function = zend_hash_str_find_ind(myht_parent, "function", sizeof("function")-1);
+          // TODO: hard coded "allow_eval" for now, will be array from php.ini later.
+          if (strcmp(Z_STRVAL_P(function),"allow_eval") == 0) {
+            allow_eval = true;
+          }
+
+          zend_hash_destroy(myht_parent);
+          efree(myht_parent);
+        }
+      }
+      
+      zend_hash_destroy(myht);
+      efree(myht);
+    }
+    _zval_ptr_dtor(&return_value);
+
+    if (!allow_eval) {
+      zend_error(E_ERROR, "DISEVAL - Use of eval is forbidden");
+      zend_bailout();
+    }
 	}
 	zend_execute_old(execute_data TSRMLS_CC);
 }
